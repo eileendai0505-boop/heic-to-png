@@ -11,6 +11,10 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://heictopng.org'),
+  alternates: {
+    canonical: '/',
+  },
   title: "HEIC to PNG Converter: Free, Unlimited & Online | HeicToPng",
   description: "Convert HEIC to PNG images online for free. Unlimited bulk conversion, no file size limits, and high quality. The best tool to change .heic to .png easily.",
   icons: {
