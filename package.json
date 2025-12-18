@@ -8,11 +8,21 @@
     "start": "next start",
     "lint": "eslint"
   },
+  "browserslist": [
+    "chrome >= 87",
+    "firefox >= 78",
+    "edge >= 88",
+    "safari >= 14",
+    "ios >= 14",
+    "not dead",
+    "not ie 11"
+  ],
   "dependencies": {
     "@radix-ui/react-progress": "^1.1.8",
     "@radix-ui/react-slot": "^1.2.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "critters": "^0.0.23",
     "file-saver": "^2.0.5",
     "heic2any": "^0.0.4",
     "jszip": "^3.10.1",

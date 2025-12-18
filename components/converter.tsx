@@ -2,8 +2,6 @@
 
 import * as React from "react"
 // heic2any is imported dynamically to avoid SSR window error
-import JSZip from "jszip"
-import { saveAs } from "file-saver"
 import { Upload, X, Download, FileType, CheckCircle, Loader2, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -170,13 +168,16 @@ export function Converter() {
         setFiles([])
     }
 
-    const downloadFile = (file: FileItem) => {
+    const downloadFile = async (file: FileItem) => {
         if (file.resultBlob) {
+            const { saveAs } = await import("file-saver")
             saveAs(file.resultBlob, file.name.replace(/\.heic$/i, ".png"))
         }
     }
 
     const downloadAll = async () => {
+        const JSZip = (await import("jszip")).default
+        const { saveAs } = await import("file-saver")
         const zip = new JSZip()
         const doneFiles = files.filter(f => f.status === "done" && f.resultBlob)
 
@@ -216,19 +217,20 @@ export function Converter() {
                         <Upload className="w-10 h-10 text-blue-500" />
                     </div>
                     <div className="space-y-2">
-                        <h3 className="text-2xl font-semibold tracking-tight">
+                        <p className="text-2xl font-semibold tracking-tight">
                             Drag & Drop HEIC files here
-                        </h3>
+                        </p>
                         <p className="text-gray-500">
                             or click to browse files
                         </p>
                     </div>
                     <div className="relative">
-                        <Button size="lg" className="relative z-10">
+                        <Button size="lg" className="relative z-10 bg-blue-600 hover:bg-blue-700 text-white">
                             Select HEIC Files
                         </Button>
                         <input
                             type="file"
+                            aria-label="Upload HEIC files"
                             multiple
                             accept=".heic"
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
