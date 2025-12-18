@@ -18,7 +18,9 @@ export const metadata: Metadata = {
   title: "HEIC to PNG Converter: Free, Unlimited & Online | HeicToPng",
   description: "Convert HEIC to PNG images online for free. Unlimited bulk conversion, no file size limits, and high quality. The best tool to change .heic to .png easily.",
   icons: {
-    icon: '/heictopng-favicon.png',
+    icon: '/favicon.png',
+    shortcut: '/favicon.png',
+    apple: '/favicon.png',
   },
 };
 
