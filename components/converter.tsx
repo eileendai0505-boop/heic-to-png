@@ -176,7 +176,7 @@ export function Converter() {
                                 Drag & Drop HEIC Files to Convert
                             </h2>
                             <p className="text-gray-600 text-lg">
-                                Bulk convert up to <strong className="font-semibold text-gray-900">100 images</strong> at once. Supports HEIC, HEIF, and AVIF formats (<strong className="font-semibold text-gray-900">Max 50MB</strong> per file).
+                                Bulk convert up to <strong className="font-semibold text-gray-900">100 images</strong> at once. Supports <strong className="font-semibold text-gray-900">HEIC format</strong> (<strong className="font-semibold text-gray-900">Max 50MB</strong> per file).
                             </p>
                         </div>
 
