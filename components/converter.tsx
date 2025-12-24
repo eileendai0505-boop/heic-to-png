@@ -1,331 +1,256 @@
 "use client"
 
 import * as React from "react"
-// heic2any is imported dynamically to avoid SSR window error
-import { Upload, X, Download, FileType, CheckCircle, Loader2, Trash2 } from "lucide-react"
+import { Upload, Download, CheckCircle, Loader2, RefreshCw, Image as ImageIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 
-type ConversionStatus = "pending" | "converting" | "done" | "error"
-
-interface FileItem {
-    id: string
-    file: File
-    name: string
-    originalSize: number
-    status: ConversionStatus
-    progress: number // 0-100
-    resultBlob?: Blob
-    resultUrl?: string
-    errorMsg?: string
-}
+type ProcessingStatus = 'idle' | 'reading' | 'processing' | 'zipping' | 'completed'
 
 export function Converter() {
-    const [files, setFiles] = React.useState<FileItem[]>([])
+    const [status, setStatus] = React.useState<ProcessingStatus>('idle')
+    const [progress, setProgress] = React.useState(0)
+    const [statusText, setStatusText] = React.useState('')
     const [isDragOver, setIsDragOver] = React.useState(false)
-    const [isProcessing, setIsProcessing] = React.useState(false)
+    const [downloadUrl, setDownloadUrl] = React.useState<string | null>(null)
+    const [errorMsg, setErrorMsg] = React.useState<string | null>(null)
 
-    const processQueue = React.useCallback(async (currentFiles: FileItem[]) => {
-        // Determine next file to process
-        // We only process one at a time to keep UI responsive
+    const processFiles = async (files: File[]) => {
+        // Limits
+        const MAX_FILES = 100
+        const MAX_SIZE_MB = 50
 
-        // Find first pending file
-        const nextFileIndex = currentFiles.findIndex(f => f.status === "pending")
-        if (nextFileIndex === -1) {
-            setIsProcessing(false)
+        if (files.length === 0) return
+
+        if (files.length > MAX_FILES) {
+            setErrorMsg(`Maximum ${MAX_FILES} files allowed at once.`)
             return
         }
 
-        setIsProcessing(true)
-        const nextFile = currentFiles[nextFileIndex]
+        const validFiles: File[] = []
+        for (const file of files) {
+            if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+                setErrorMsg(`File "${file.name}" exceeds ${MAX_SIZE_MB}MB limit.`)
+                return
+            }
+            validFiles.push(file)
+        }
 
-        // Update status to converting
-        setFiles(prev => prev.map((f, i) => i === nextFileIndex ? { ...f, status: "converting", progress: 10 } : f))
+        if (validFiles.length === 0) return
+
+        setStatus('reading')
+        setErrorMsg(null)
+        setDownloadUrl(null)
 
         try {
-            // Dynamic import
+            // Dynamic imports
             const heic2any = (await import("heic2any")).default
+            const JSZip = (await import("jszip")).default
+            const { saveAs } = await import("file-saver")
 
-            // Conversion logic
-            const conversionResult = await heic2any({
-                blob: nextFile.file,
-                toType: "image/png",
-                quality: 0.9,
-            })
+            setStatus('processing')
+            const zip = new JSZip()
+            let completedCount = 0
 
-            const blob = Array.isArray(conversionResult) ? conversionResult[0] : conversionResult
-            const url = URL.createObjectURL(blob)
+            // Queue system
+            const concurrency = 3
+            const queue = [...validFiles]
+            const totalFiles = validFiles.length
 
-            setFiles(prev => {
-                const newFiles = [...prev]
-                newFiles[nextFileIndex] = {
-                    ...newFiles[nextFileIndex],
-                    status: "done",
-                    progress: 100,
-                    resultBlob: blob,
-                    resultUrl: url
+            const worker = async () => {
+                while (queue.length > 0) {
+                    const file = queue.shift()
+                    if (!file) break
+
+                    try {
+                        const convertedBlob = await heic2any({
+                            blob: file,
+                            toType: "image/png",
+                            quality: 0.8
+                        })
+
+                        const blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob
+                        // Handle filename extension replacement (case insensitive)
+                        const newName = file.name.replace(/\.heic$/i, ".png").replace(/\.heif$/i, ".png").replace(/\.avif$/i, ".png")
+                        zip.file(newName, blob)
+                    } catch (err) {
+                        console.error(`Failed to convert ${file.name}`, err)
+                    } finally {
+                        completedCount++
+                        // Update progress
+                        const percent = Math.round((completedCount / totalFiles) * 100)
+                        setProgress(percent)
+                        setStatusText(`Converting ${completedCount}/${totalFiles}...`)
+                    }
                 }
+            }
 
-                // Trigger next processing on separate tick
-                setTimeout(() => processQueue(newFiles), 100)
-                return newFiles
-            })
+            // Start concurrent workers
+            await Promise.all(Array(Math.min(concurrency, totalFiles)).fill(null).map(worker))
+
+            setStatus('zipping')
+            setStatusText('Creating ZIP archive...')
+
+            const zipContent = await zip.generateAsync({ type: "blob" })
+            const url = URL.createObjectURL(zipContent)
+            setDownloadUrl(url)
+
+            // Auto download
+            saveAs(zipContent, "heictopng-converted.zip")
+
+            setStatus('completed')
+            setStatusText('Success!')
 
         } catch (err) {
-            console.error("Conversion error:", err)
-            setFiles(prev => {
-                const newFiles = [...prev]
-                newFiles[nextFileIndex] = {
-                    ...newFiles[nextFileIndex],
-                    status: "error",
-                    progress: 0,
-                    errorMsg: "Failed to convert"
-                }
-                setTimeout(() => processQueue(newFiles), 100)
-                return newFiles
-            })
+            console.error("Batch processing error:", err)
+            setErrorMsg("An error occurred during processing. Please try again.")
+            setStatus('idle')
         }
-
-    }, [])
-
-    // Trigger processing when files are added, if not already processing
-    React.useEffect(() => {
-        // Check if we have pending files and not processing
-        const hasPending = files.some(f => f.status === "pending")
-        if (hasPending && !isProcessing) {
-            processQueue(files)
-        }
-    }, [files, isProcessing, processQueue])
-
+    }
 
     const onDrop = React.useCallback((e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault()
         setIsDragOver(false)
-
         const droppedFiles = Array.from(e.dataTransfer.files).filter(
-            (f) => f.name.toLowerCase().endsWith(".heic") || f.type === "image/heic" || f.type === "" // HEICs sometimes have empty type
+            (f) => {
+                const lowerName = f.name.toLowerCase()
+                return lowerName.endsWith(".heic") || lowerName.endsWith(".heif") || lowerName.endsWith(".avif") || f.type === "image/heic" || f.type === ""
+            }
         )
-
-        if (droppedFiles.length === 0) return
-
-        const newItems: FileItem[] = droppedFiles.map(f => ({
-            id: Math.random().toString(36).substring(7),
-            file: f,
-            name: f.name,
-            originalSize: f.size,
-            status: "pending",
-            progress: 0
-        }))
-
-        setFiles(prev => [...prev, ...newItems])
-    }, [])
-
-    const onDragOver = React.useCallback((e: React.DragEvent<HTMLDivElement>) => {
-        e.preventDefault()
-        setIsDragOver(true)
-    }, [])
-
-    const onDragLeave = React.useCallback((e: React.DragEvent<HTMLDivElement>) => {
-        e.preventDefault()
-        setIsDragOver(false)
+        if (droppedFiles.length > 0) {
+            processFiles(droppedFiles)
+        }
     }, [])
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files) {
+        if (e.target.files && e.target.files.length > 0) {
             const selectedFiles = Array.from(e.target.files).filter(
-                (f) => f.name.toLowerCase().endsWith(".heic") || f.type === "image/heic"
+                (f) => {
+                    const lowerName = f.name.toLowerCase()
+                    return lowerName.endsWith(".heic") || lowerName.endsWith(".heif") || lowerName.endsWith(".avif") || f.type === "image/heic"
+                }
             )
-
-            const newItems: FileItem[] = selectedFiles.map(f => ({
-                id: Math.random().toString(36).substring(7),
-                file: f,
-                name: f.name,
-                originalSize: f.size,
-                status: "pending",
-                progress: 0
-            }))
-
-            setFiles(prev => [...prev, ...newItems])
+            processFiles(selectedFiles)
         }
-        // reset input
         e.target.value = ""
     }
 
-    const removeFile = (id: string) => {
-        setFiles(prev => {
-            const file = prev.find(f => f.id === id)
-            if (file?.resultUrl) URL.revokeObjectURL(file.resultUrl)
-            return prev.filter(f => f.id !== id)
-        })
-    }
-
-    const clearAll = () => {
-        files.forEach(f => {
-            if (f.resultUrl) URL.revokeObjectURL(f.resultUrl)
-        })
-        setFiles([])
-    }
-
-    const downloadFile = async (file: FileItem) => {
-        if (file.resultBlob) {
-            const { saveAs } = await import("file-saver")
-            saveAs(file.resultBlob, file.name.replace(/\.heic$/i, ".png"))
+    const reset = () => {
+        setStatus('idle')
+        setProgress(0)
+        setStatusText('')
+        if (downloadUrl) {
+            URL.revokeObjectURL(downloadUrl)
         }
-    }
-
-    const downloadAll = async () => {
-        const JSZip = (await import("jszip")).default
-        const { saveAs } = await import("file-saver")
-        const zip = new JSZip()
-        const doneFiles = files.filter(f => f.status === "done" && f.resultBlob)
-
-        if (doneFiles.length === 0) return
-
-        doneFiles.forEach(f => {
-            zip.file(f.name.replace(/\.heic$/i, ".png"), f.resultBlob!)
-        })
-
-        const content = await zip.generateAsync({ type: "blob" })
-        saveAs(content, "converted_images.zip")
-    }
-
-    const formatSize = (bytes: number) => {
-        if (bytes === 0) return "0 B"
-        const k = 1024
-        const sizes = ["B", "KB", "MB", "GB"]
-        const i = Math.floor(Math.log(bytes) / Math.log(k))
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i]
+        setDownloadUrl(null)
+        setErrorMsg(null)
     }
 
     return (
         <div className="w-full max-w-4xl mx-auto space-y-8">
+            {errorMsg && (
+                <div className="bg-red-50 text-red-600 p-4 rounded-xl text-center font-medium border border-red-100 shadow-sm animate-in fade-in slide-in-from-top-2">
+                    {errorMsg}
+                </div>
+            )}
 
-            {/* Drop Zone */}
-            <Card
-                className={cn(
-                    "border-2 border-dashed transition-all cursor-pointer bg-white",
-                    isDragOver ? "border-blue-500 bg-blue-50/50" : "border-gray-300 hover:border-gray-400"
-                )}
-                onDrop={onDrop}
-                onDragOver={onDragOver}
-                onDragLeave={onDragLeave}
-            >
-                <CardContent className="flex flex-col items-center justify-center py-16 space-y-6 text-center">
-                    <div className="p-4 bg-blue-50 rounded-full">
-                        <Upload className="w-10 h-10 text-blue-500" />
-                    </div>
-                    <div className="space-y-2">
-                        <p className="text-2xl font-semibold tracking-tight">
-                            Drag & Drop HEIC files here
-                        </p>
-                        <p className="text-gray-500">
-                            or click to browse files
-                        </p>
-                    </div>
-                    <div className="relative">
-                        <Button size="lg" className="relative z-10 bg-blue-600 hover:bg-blue-700 text-white">
-                            Select HEIC Files
-                        </Button>
-                        <input
-                            type="file"
-                            aria-label="Upload HEIC files"
-                            multiple
-                            accept=".heic"
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
-                            onChange={handleFileSelect}
-                        />
-                    </div>
-                </CardContent>
-            </Card>
+            {status === 'idle' && (
+                <Card
+                    className={cn(
+                        "rounded-3xl border-2 border-dashed transition-all cursor-pointer bg-white overflow-hidden",
+                        isDragOver ? "border-blue-500 bg-blue-50/50 scale-[1.01]" : "border-gray-200 hover:border-blue-400 hover:bg-gray-50/50 shadow-sm hover:shadow-md"
+                    )}
+                    onDrop={onDrop}
+                    onDragOver={(e) => { e.preventDefault(); setIsDragOver(true) }}
+                    onDragLeave={(e) => { e.preventDefault(); setIsDragOver(false) }}
+                >
+                    <CardContent className="flex flex-col items-center justify-center p-10 md:p-14 text-center space-y-6">
+                        <div className="p-5 bg-blue-50 rounded-full mb-2 group-hover:scale-110 transition-transform duration-300">
+                            <ImageIcon className="w-12 h-12 text-blue-600" />
+                        </div>
 
-            {/* File List */}
-            {files.length > 0 && (
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                        <h4 className="font-semibold text-gray-900">
-                            Files ({files.length})
-                        </h4>
-                        <div className="flex gap-2">
-                            {files.some(f => f.status === "done") && (
-                                <Button variant="outline" size="sm" onClick={downloadAll}>
-                                    <Download className="w-4 h-4 mr-2" />
-                                    Download All (ZIP)
-                                </Button>
+                        <div className="space-y-3 max-w-lg mx-auto">
+                            <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-900">
+                                Drag & Drop HEIC Files to Convert
+                            </h2>
+                            <p className="text-gray-600 text-lg">
+                                Bulk convert up to <strong className="font-semibold text-gray-900">100 images</strong> at once. Supports HEIC, HEIF, and AVIF formats (<strong className="font-semibold text-gray-900">Max 50MB</strong> per file).
+                            </p>
+                        </div>
+
+                        <div className="relative pt-4">
+                            <Button size="lg" className="relative z-10 h-14 px-8 text-lg font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg hover:shadow-xl transition-all">
+                                Select HEIC Files
+                            </Button>
+                            <input
+                                type="file"
+                                aria-label="Upload HEIC files"
+                                multiple
+                                accept=".heic,.heif,.avif"
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                                onChange={handleFileSelect}
+                            />
+                        </div>
+
+                        <p className="text-sm text-gray-400 mt-6 pt-4 border-t border-gray-100 w-full max-w-md">
+                            Secure, client-side processing for your high-quality Apple photos. No data leaves your device.
+                        </p>
+                    </CardContent>
+                </Card>
+            )}
+
+            {(status === 'reading' || status === 'processing' || status === 'zipping') && (
+                <Card className="border-none shadow-xl bg-white rounded-3xl overflow-hidden">
+                    <CardContent className="py-20 px-8 flex flex-col items-center text-center space-y-8">
+                        <div className="relative">
+                            <div className="absolute inset-0 bg-blue-100 rounded-full animate-ping opacity-25"></div>
+                            <div className="relative p-4 bg-blue-50 rounded-full">
+                                <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+                            </div>
+                        </div>
+
+                        <div className="w-full max-w-xl space-y-4">
+                            <div className="flex justify-between text-base font-semibold text-gray-700">
+                                <span className="animate-pulse">{statusText}</span>
+                                <span>{progress}%</span>
+                            </div>
+                            <Progress value={progress} className="h-4 bg-gray-100 [&>div]:bg-blue-600 rounded-full transition-all duration-500" />
+                        </div>
+                        <p className="text-gray-400 text-sm">Large batches may take a few moments. Please keep this tab open.</p>
+                    </CardContent>
+                </Card>
+            )}
+
+            {status === 'completed' && (
+                <Card className="border-none shadow-xl bg-white rounded-3xl overflow-hidden ring-1 ring-green-100">
+                    <CardContent className="py-20 flex flex-col items-center text-center space-y-8 animate-in zoom-in-95 duration-300">
+                        <div className="p-5 bg-green-50 rounded-full text-green-600 mb-2">
+                            <CheckCircle className="w-16 h-16" />
+                        </div>
+
+                        <div className="space-y-2">
+                            <h3 className="text-3xl font-bold text-gray-900">Conversion Complete!</h3>
+                            <p className="text-gray-500 text-lg">Your ZIP file has started downloading automatically.</p>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-4 pt-4 w-full justify-center">
+                            {downloadUrl && (
+                                <a href={downloadUrl} download="heictopng-converted.zip" className="w-full sm:w-auto">
+                                    <Button size="lg" className="w-full h-14 text-lg bg-green-600 hover:bg-green-700 text-white rounded-full shadow-md hover:shadow-lg transition-all">
+                                        <Download className="w-5 h-5 mr-2" />
+                                        Download ZIP Again
+                                    </Button>
+                                </a>
                             )}
-                            <Button variant="ghost" size="sm" onClick={clearAll} className="text-red-500 hover:text-red-600 hover:bg-red-50">
-                                <Trash2 className="w-4 h-4 mr-2" />
-                                Clear All
+                            <Button size="lg" variant="outline" onClick={reset} className="w-full sm:w-auto h-14 text-lg border-2 rounded-full hover:bg-gray-50">
+                                <RefreshCw className="w-5 h-5 mr-2" />
+                                Convert More Files
                             </Button>
                         </div>
-                    </div>
-
-                    <div className="grid gap-3">
-                        {files.map((file) => (
-                            <Card key={file.id} className="overflow-hidden">
-                                <div className="p-4 flex items-center gap-4">
-                                    <div className="h-12 w-12 bg-gray-100 rounded-lg flex items-center justify-center flex-shrink-0 text-gray-500">
-                                        <FileType className="w-6 h-6" />
-                                    </div>
-
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between mb-1">
-                                            <p className="font-medium truncate pr-4">{file.name}</p>
-                                            <span className="text-xs text-gray-500 whitespace-nowrap">
-                                                {formatSize(file.originalSize)}
-                                            </span>
-                                        </div>
-
-                                        <div className="flex items-center gap-4">
-                                            <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
-                                                {file.status === "converting" && (
-                                                    <div className="h-full bg-blue-500 animate-pulse w-full" style={{ width: '100%' }} />
-                                                )}
-                                                {file.status === "done" && (
-                                                    <div className="h-full bg-green-500 w-full" />
-                                                )}
-                                                {file.status === "pending" && (
-                                                    <div className="h-full" />
-                                                )}
-                                                {file.status === "error" && (
-                                                    <div className="h-full bg-red-500 w-full" />
-                                                )}
-                                            </div>
-
-                                            <div className="min-w-[100px] flex justify-end">
-                                                {file.status === "pending" && (
-                                                    <span className="text-xs text-gray-400">Waiting...</span>
-                                                )}
-                                                {file.status === "converting" && (
-                                                    <span className="text-xs text-blue-600 flex items-center">
-                                                        <Loader2 className="w-3 h-3 mr-1 animate-spin" /> Converting
-                                                    </span>
-                                                )}
-                                                {file.status === "done" && (
-                                                    <Button size="sm" variant="default" className="h-7 text-xs bg-green-600 hover:bg-green-700 text-white" onClick={() => downloadFile(file)}>
-                                                        <Download className="w-3 h-3 mr-1" />
-                                                        Download
-                                                    </Button>
-                                                )}
-                                                {file.status === "error" && (
-                                                    <span className="text-xs text-red-500">Error</span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <button
-                                        onClick={() => removeFile(file.id)}
-                                        className="p-1 hover:bg-gray-100 rounded-full text-gray-400 hover:text-gray-600 transition-colors"
-                                    >
-                                        <X className="w-5 h-5" />
-                                    </button>
-                                </div>
-                            </Card>
-                        ))}
-                    </div>
-                </div>
+                    </CardContent>
+                </Card>
             )}
         </div>
     )
