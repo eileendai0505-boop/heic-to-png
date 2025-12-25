@@ -194,7 +194,7 @@ export function Converter() {
                             />
                         </div>
 
-                        <p className="text-sm text-gray-400 mt-6 pt-4 border-t border-gray-100 w-full max-w-md">
+                        <p className="text-sm text-gray-600 mt-6 pt-4 border-t border-gray-100 w-full max-w-md">
                             Secure, client-side processing for your high-quality Apple photos. No data leaves your device.
                         </p>
                     </CardContent>
