@@ -24,12 +24,21 @@ export function Converter() {
         const name = file.name.toLowerCase()
         const type = file.type.toLowerCase()
 
-        // 1. Check strict MIME type (Good for Desktop)
-        if (type === 'image/heic') return true
+        // 1. Standard HEIC check
+        if (name.endsWith('.heic') || name.endsWith('.heif')) return true
+        if (type === 'image/heic' || type === 'image/heif') return true
 
-        // 2. Fallback: Check Extension (REQUIRED for Mobile/iOS where type is empty)
-        // We strictly allow only .heic extension as requested
-        if (name.endsWith('.heic')) return true
+        // 2. iOS Edge Case: Empty Type
+        // Mobile browsers sometimes return empty type/name for camera uploads.
+        // If it has no type but we are in this handler, let it pass and try to parse it.
+        if (type === "") return true
+
+        // 3. iOS Edge Case: Auto-converted JPEG
+        // If iOS converted it to JPEG, the user still wants a PNG.
+        // Accept it so we don't block the user.
+        if (type === 'image/jpeg' || type === 'image/jpg' || name.endsWith('.jpg') || name.endsWith('.jpeg')) {
+            return true
+        }
 
         return false
     }
@@ -44,8 +53,12 @@ export function Converter() {
         const validFiles = allFiles.filter(isValidHeicFile)
 
         if (validFiles.length === 0) {
+            // Debugging info: Show the user what the browser received
+            const firstFile = allFiles[0]
+            const debugInfo = firstFile ? `Received: ${firstFile.type} (${firstFile.name})` : "No file data"
+
             // Show error only if NO files are valid
-            setErrorMsg("No valid HEIC files found in selection.")
+            setErrorMsg(`No valid HEIC files found. ${debugInfo}`)
             e.target.value = "" // Reset input so they can try again
             return // Stop here, do not proceed to "Ready" state
         }
@@ -134,16 +147,63 @@ export function Converter() {
                     if (!file) break
 
                     try {
-                        const convertedBlob = await heic2any({
-                            blob: file,
-                            toType: "image/png",
-                            quality: 0.8
-                        })
+                        let blobToZip: Blob = file;
+                        let fileName = file.name;
 
-                        const blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob
+                        // Check if file is already PNG/JPG (bypass conversion if so, or convert generic image)
+                        // Actually heic2any handles conversion.
+                        // If it's a JPG (iOS auto convert), we should still convert it to PNG as promised.
+
+                        const lowerName = file.name.toLowerCase();
+                        const lowerType = file.type.toLowerCase();
+
+                        // If heic2any supports it, great. If not, we might need standard canvas conversion
+                        // but let's try pushing it through heic2any first as it claims to handle images.
+                        // Actually heic2any is specifically for HEIC.
+                        // If we have a JPEG, we need a different path or just let heic2any fail?
+                        // Wait, heic2any only does HEIC/HEIF.
+                        // If we have a JPEG, we can use standard HTML5 Canvas or just fetch -> blob.
+                        // For simplicity in this logic, let's assume validFiles will be processed.
+
+                        // However, strictly speaking `heic2any` might throw if given a JPEG.
+                        // We should guard against that.
+
+                        if (lowerType === 'image/jpeg' || lowerType === 'image/jpg' || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
+                            // Convert JPEG to PNG using Canvas
+                            // Simple fallback for iOS converted files
+                            const bitmap = await createImageBitmap(file);
+                            const canvas = document.createElement('canvas');
+                            canvas.width = bitmap.width;
+                            canvas.height = bitmap.height;
+                            const ctx = canvas.getContext('2d');
+                            if (ctx) {
+                                ctx.drawImage(bitmap, 0, 0);
+                                const pngBlob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
+                                if (pngBlob) {
+                                    blobToZip = pngBlob;
+                                } else {
+                                    throw new Error("Canvas to Blob failed");
+                                }
+                            }
+                        } else {
+                            // Standard HEIC conversion
+                            const convertedBlob = await heic2any({
+                                blob: file,
+                                toType: "image/png",
+                                quality: 0.8
+                            })
+                            blobToZip = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob
+                        }
+
                         // Handle filename extension replacement (case insensitive)
-                        const newName = file.name.replace(/\.heic$/i, ".png")
-                        zip.file(newName, blob)
+                        // Replace .heic, .heif, .jpg, .jpeg with .png
+                        const newName = file.name
+                            .replace(/\.heic$/i, ".png")
+                            .replace(/\.heif$/i, ".png")
+                            .replace(/\.jpg$/i, ".png")
+                            .replace(/\.jpeg$/i, ".png")
+
+                        zip.file(newName, blobToZip)
                     } catch (err) {
                         console.error(`Failed to convert ${file.name}`, err)
                     } finally {
@@ -189,7 +249,10 @@ export function Converter() {
             const validFiles = droppedFiles.filter(isValidHeicFile)
 
             if (validFiles.length === 0) {
-                setErrorMsg("No valid HEIC files found in selection.")
+                // Debug info for drop
+                const first = droppedFiles[0];
+                const debug = first ? `Received: ${first.type} (${first.name})` : "";
+                setErrorMsg(`No valid HEIC files found in selection. ${debug}`)
                 return
             }
 
@@ -261,7 +324,7 @@ export function Converter() {
                                 type="file"
                                 ref={fileInputRef}
                                 onChange={handleFileSelect}
-                                accept=".heic,.HEIC"
+                                accept=".heic,.HEIC,.heif,.HEIF"
                                 multiple
                                 className="hidden"
                             />
