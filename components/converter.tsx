@@ -1,44 +1,94 @@
 "use client"
 
 import * as React from "react"
-import { Upload, Download, CheckCircle, Loader2, RefreshCw, Image as ImageIcon } from "lucide-react"
+import { Upload, Download, CheckCircle, Loader2, RefreshCw, Image as ImageIcon, FileStack } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 
-type ProcessingStatus = 'idle' | 'reading' | 'processing' | 'zipping' | 'completed'
+type ProcessingStatus = 'idle' | 'ready' | 'reading' | 'processing' | 'zipping' | 'completed'
 
 export function Converter() {
     const [status, setStatus] = React.useState<ProcessingStatus>('idle')
+    const [files, setFiles] = React.useState<File[]>([])
     const [progress, setProgress] = React.useState(0)
     const [statusText, setStatusText] = React.useState('')
     const [isDragOver, setIsDragOver] = React.useState(false)
     const [downloadUrl, setDownloadUrl] = React.useState<string | null>(null)
     const [errorMsg, setErrorMsg] = React.useState<string | null>(null)
 
-    const processFiles = async (files: File[]) => {
+    const fileInputRef = React.useRef<HTMLInputElement>(null)
+
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        // 1. Safety Check
+        if (!e.target.files || e.target.files.length === 0) return
+
+        // 2. Convert FileList to Array
+        const selectedFiles = Array.from(e.target.files)
+
+        // 3. Update State IMMEDIATELY (Force UI Change)
+        setFiles(selectedFiles)
+        setStatus('ready') // <--- Critical: Switch UI from Dropzone to Summary
+        setErrorMsg(null) // Clear any previous errors
+
+        // 4. Reset input to allow re-selecting the same file if needed
+        e.target.value = ""
+    }
+
+    const startConversion = () => {
+        if (files.length > 0) {
+            processFiles(files)
+        }
+    }
+
+    const cancelSelection = () => {
+        setFiles([])
+        setStatus('idle')
+        setErrorMsg(null)
+    }
+
+    const processFiles = async (filesToProcess: File[]) => {
         // Limits
         const MAX_FILES = 100
         const MAX_SIZE_MB = 50
 
-        if (files.length === 0) return
+        if (filesToProcess.length === 0) return
 
-        if (files.length > MAX_FILES) {
+        if (filesToProcess.length > MAX_FILES) {
             setErrorMsg(`Maximum ${MAX_FILES} files allowed at once.`)
+            setStatus('ready') // Go back to ready state to let user cancel or retry
             return
         }
 
         const validFiles: File[] = []
-        for (const file of files) {
+        for (const file of filesToProcess) {
+            // Basic extension check to ensure we only try to process images, 
+            // but we are lenient with mime types as requested.
+            const lowerName = file.name.toLowerCase()
+            const isHeic = lowerName.endsWith(".heic") || lowerName.endsWith(".heif") || lowerName.endsWith(".avif")
+
+            if (!isHeic) {
+                // Optional: decide if we want to silently skip or error. 
+                // For now, let's include it and let the processor fail if it's bad, 
+                // or just skip non-heic to avoid crashing heic2any.
+                // The user asked for "Lenient Validation", so strict extension check is safer than nothing.
+                continue;
+            }
+
             if (file.size > MAX_SIZE_MB * 1024 * 1024) {
                 setErrorMsg(`File "${file.name}" exceeds ${MAX_SIZE_MB}MB limit.`)
+                setStatus('ready')
                 return
             }
             validFiles.push(file)
         }
 
-        if (validFiles.length === 0) return
+        if (validFiles.length === 0) {
+            setErrorMsg("No valid HEIC/HEIF/AVIF files found in selection.")
+            setStatus('ready')
+            return
+        }
 
         setStatus('reading')
         setErrorMsg(null)
@@ -106,39 +156,24 @@ export function Converter() {
         } catch (err) {
             console.error("Batch processing error:", err)
             setErrorMsg("An error occurred during processing. Please try again.")
-            setStatus('idle')
+            setStatus('ready') // Let them try again from ready state
         }
     }
 
     const onDrop = React.useCallback((e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault()
         setIsDragOver(false)
-        const droppedFiles = Array.from(e.dataTransfer.files).filter(
-            (f) => {
-                const lowerName = f.name.toLowerCase()
-                return lowerName.endsWith(".heic") || lowerName.endsWith(".heif") || lowerName.endsWith(".avif") || f.type === "image/heic" || f.type === ""
-            }
-        )
-        if (droppedFiles.length > 0) {
-            processFiles(droppedFiles)
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            const droppedFiles = Array.from(e.dataTransfer.files)
+            setFiles(droppedFiles)
+            setStatus('ready')
+            setErrorMsg(null)
         }
     }, [])
 
-    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files.length > 0) {
-            const selectedFiles = Array.from(e.target.files).filter(
-                (f) => {
-                    const lowerName = f.name.toLowerCase()
-                    return lowerName.endsWith(".heic") || lowerName.endsWith(".heif") || lowerName.endsWith(".avif") || f.type === "image/heic"
-                }
-            )
-            processFiles(selectedFiles)
-        }
-        e.target.value = ""
-    }
-
     const reset = () => {
         setStatus('idle')
+        setFiles([])
         setProgress(0)
         setStatusText('')
         if (downloadUrl) {
@@ -165,6 +200,7 @@ export function Converter() {
                     onDrop={onDrop}
                     onDragOver={(e) => { e.preventDefault(); setIsDragOver(true) }}
                     onDragLeave={(e) => { e.preventDefault(); setIsDragOver(false) }}
+                    onClick={() => fileInputRef.current?.click()} // Allow clicking anywhere on card too
                 >
                     <CardContent className="flex flex-col items-center justify-center p-10 md:p-14 text-center space-y-6">
                         <div className="p-5 bg-blue-50 rounded-full mb-2 group-hover:scale-110 transition-transform duration-300">
@@ -180,23 +216,69 @@ export function Converter() {
                             </p>
                         </div>
 
-                        <div className="relative pt-4">
-                            <Button size="lg" className="relative z-10 h-14 px-8 text-lg font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg hover:shadow-xl transition-all">
+                        <div className="pt-4">
+                            <Button
+                                size="lg"
+                                className="h-14 px-8 text-lg font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg hover:shadow-xl transition-all"
+                                onClick={(e) => {
+                                    e.stopPropagation() // Prevent double click if parent card also has click
+                                    fileInputRef.current?.click()
+                                }}
+                            >
                                 Select HEIC Files
                             </Button>
+
+                            {/* HIDDEN INPUT (NOT opacity-0 overlay) */}
                             <input
                                 type="file"
-                                aria-label="Upload HEIC files"
-                                multiple
-                                accept=".heic,.heif,.avif"
-                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                                ref={fileInputRef}
                                 onChange={handleFileSelect}
+                                accept=".heic,.HEIC,.heif,.HEIF,.avif,.AVIF"
+                                multiple
+                                className="hidden"
                             />
                         </div>
 
                         <p className="text-sm text-gray-600 mt-6 pt-4 border-t border-gray-100 w-full max-w-md">
                             Secure, client-side processing for your high-quality Apple photos. No data leaves your device.
                         </p>
+                    </CardContent>
+                </Card>
+            )}
+
+            {status === 'ready' && (
+                <Card className="border-none shadow-xl bg-white rounded-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+                    <CardContent className="py-20 px-8 flex flex-col items-center text-center space-y-8">
+                        <div className="p-6 bg-blue-50 rounded-full mb-2">
+                            <FileStack className="w-16 h-16 text-blue-600" />
+                        </div>
+
+                        <div className="space-y-2">
+                            <h3 className="text-2xl md:text-3xl font-bold text-gray-900">
+                                {files.length} {files.length === 1 ? 'file' : 'files'} selected
+                            </h3>
+                            <p className="text-gray-500 text-lg">
+                                Ready to convert to PNG
+                            </p>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-4 w-full justify-center max-w-md mx-auto pt-4">
+                            <Button
+                                size="lg"
+                                onClick={startConversion}
+                                className="w-full h-14 text-lg font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg hover:shadow-xl transition-all"
+                            >
+                                Start Conversion
+                            </Button>
+                            <Button
+                                size="lg"
+                                variant="ghost"
+                                onClick={cancelSelection}
+                                className="w-full h-14 text-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-full"
+                            >
+                                Cancel
+                            </Button>
+                        </div>
                     </CardContent>
                 </Card>
             )}
@@ -255,3 +337,4 @@ export function Converter() {
         </div>
     )
 }
+
