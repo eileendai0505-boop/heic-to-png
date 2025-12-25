@@ -20,15 +20,45 @@ export function Converter() {
 
     const fileInputRef = React.useRef<HTMLInputElement>(null)
 
+    const isValidHeicFile = (file: File) => {
+        const name = file.name.toLowerCase()
+        const type = file.type.toLowerCase()
+
+        // 1. Check strict MIME type (Good for Desktop)
+        if (type === 'image/heic') return true
+
+        // 2. Fallback: Check Extension (REQUIRED for Mobile/iOS where type is empty)
+        // We strictly allow only .heic extension as requested
+        if (name.endsWith('.heic')) return true
+
+        return false
+    }
+
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         // 1. Safety Check
         if (!e.target.files || e.target.files.length === 0) return
 
-        // 2. Convert FileList to Array
-        const selectedFiles = Array.from(e.target.files)
+        const allFiles = Array.from(e.target.files)
+
+        // Filter using the new robust function
+        const validFiles = allFiles.filter(isValidHeicFile)
+
+        if (validFiles.length === 0) {
+            // Show error only if NO files are valid
+            setErrorMsg("No valid HEIC files found in selection.")
+            e.target.value = "" // Reset input so they can try again
+            return // Stop here, do not proceed to "Ready" state
+        }
+
+        if (validFiles.length < allFiles.length) {
+            // Optional: Warn if some were skipped, but proceed with valid ones
+            // Since we don't have a toast component easily accessible, we might just proceed or show a non-critical error?
+            // User requested "Show error only if NO files are valid", so we proceed silently for partial success or maybe specific warning if critical.
+            // Let's just proceed with valid ones as per user request flow implies success path for valid files.
+        }
 
         // 3. Update State IMMEDIATELY (Force UI Change)
-        setFiles(selectedFiles)
+        setFiles(validFiles)
         setStatus('ready') // <--- Critical: Switch UI from Dropzone to Summary
         setErrorMsg(null) // Clear any previous errors
 
@@ -63,19 +93,8 @@ export function Converter() {
 
         const validFiles: File[] = []
         for (const file of filesToProcess) {
-            // Basic extension check to ensure we only try to process images, 
-            // but we are lenient with mime types as requested.
-            const lowerName = file.name.toLowerCase()
-            const isHeic = lowerName.endsWith(".heic") || lowerName.endsWith(".heif") || lowerName.endsWith(".avif")
-
-            if (!isHeic) {
-                // Optional: decide if we want to silently skip or error. 
-                // For now, let's include it and let the processor fail if it's bad, 
-                // or just skip non-heic to avoid crashing heic2any.
-                // The user asked for "Lenient Validation", so strict extension check is safer than nothing.
-                continue;
-            }
-
+            // The files are already pre-filtered by isValidHeicFile in handleFileSelect and onDrop.
+            // We only need to check size here.
             if (file.size > MAX_SIZE_MB * 1024 * 1024) {
                 setErrorMsg(`File "${file.name}" exceeds ${MAX_SIZE_MB}MB limit.`)
                 setStatus('ready')
@@ -85,7 +104,7 @@ export function Converter() {
         }
 
         if (validFiles.length === 0) {
-            setErrorMsg("No valid HEIC/HEIF/AVIF files found in selection.")
+            setErrorMsg("No valid HEIC files found in selection.")
             setStatus('ready')
             return
         }
@@ -123,7 +142,7 @@ export function Converter() {
 
                         const blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob
                         // Handle filename extension replacement (case insensitive)
-                        const newName = file.name.replace(/\.heic$/i, ".png").replace(/\.heif$/i, ".png").replace(/\.avif$/i, ".png")
+                        const newName = file.name.replace(/\.heic$/i, ".png")
                         zip.file(newName, blob)
                     } catch (err) {
                         console.error(`Failed to convert ${file.name}`, err)
@@ -165,7 +184,16 @@ export function Converter() {
         setIsDragOver(false)
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
             const droppedFiles = Array.from(e.dataTransfer.files)
-            setFiles(droppedFiles)
+
+            // Filter using the new robust function
+            const validFiles = droppedFiles.filter(isValidHeicFile)
+
+            if (validFiles.length === 0) {
+                setErrorMsg("No valid HEIC files found in selection.")
+                return
+            }
+
+            setFiles(validFiles)
             setStatus('ready')
             setErrorMsg(null)
         }
@@ -233,7 +261,7 @@ export function Converter() {
                                 type="file"
                                 ref={fileInputRef}
                                 onChange={handleFileSelect}
-                                accept=".heic,.HEIC,.heif,.HEIF,.avif,.AVIF"
+                                accept=".heic,.HEIC"
                                 multiple
                                 className="hidden"
                             />
