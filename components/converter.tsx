@@ -19,6 +19,18 @@ export function Converter() {
     const [errorMsg, setErrorMsg] = React.useState<string | null>(null)
 
     const fileInputRef = React.useRef<HTMLInputElement>(null)
+    const heic2anyRef = React.useRef<any>(null)
+
+    // Preload library for better performance
+    React.useEffect(() => {
+        const timer = setTimeout(() => {
+            import('heic2any').then((module) => {
+                heic2anyRef.current = module.default
+            }).catch(err => console.error("Failed to preload heic2any", err))
+        }, 2500)
+
+        return () => clearTimeout(timer)
+    }, [])
 
     const isValidHeicFile = (file: File) => {
         const name = file.name.toLowerCase()
@@ -127,8 +139,8 @@ export function Converter() {
         setDownloadUrl(null)
 
         try {
-            // Dynamic imports
-            const heic2any = (await import("heic2any")).default
+            // Dynamic imports with preloaded ref fallback
+            const heic2any = heic2anyRef.current || (await import("heic2any")).default
             const JSZip = (await import("jszip")).default
             const { saveAs } = await import("file-saver")
 
