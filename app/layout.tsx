@@ -12,6 +12,9 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://heictopng.org'), // Crucial for resolving absolute image paths
+  alternates: {
+    canonical: 'https://heictopng.org/',
+  },
   title: "HEIC to PNG Converter: Free, Unlimited & Online",
   description: "Convert HEIC to PNG images online for free. Unlimited batch conversion, no file size limits. Secure client-side processing.",
 
