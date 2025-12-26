@@ -11,12 +11,38 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://heictopng.org'),
-  alternates: {
-    canonical: '/',
+  metadataBase: new URL('https://heictopng.org'), // Crucial for resolving absolute image paths
+  title: "HEIC to PNG Converter: Free, Unlimited & Online",
+  description: "Convert HEIC to PNG images online for free. Unlimited batch conversion, no file size limits. Secure client-side processing.",
+
+  // 1. Open Graph (Facebook, LinkedIn, Discord)
+  openGraph: {
+    title: "HEIC to PNG Converter: Free, Unlimited & Online",
+    description: "Convert HEIC/HEIF images to PNG instantly in your browser. No upload limits, 100% private and free.",
+    url: "https://heictopng.org",
+    siteName: "HeicToPng",
+    locale: "en_US",
+    type: "website",
+    images: [
+      {
+        url: "/opengraph-image.png", // Points to public/opengraph-image.png
+        width: 1200,
+        height: 630,
+        alt: "HeicToPng Converter Preview",
+      },
+    ],
   },
-  title: "HEIC to PNG Converter: Free, Unlimited & Online | HeicToPng",
-  description: "Convert HEIC to PNG images online for free. Unlimited bulk conversion, no file size limits, and high quality. The best tool to change .heic to .png easily.",
+
+  // 2. Twitter Card (X)
+  twitter: {
+    card: "summary_large_image",
+    title: "Free HEIC to PNG Converter (Unlimited)",
+    description: "Batch convert HEIC to PNG locally in your browser. No file size limits.",
+    creator: "@HeicToPng", // Optional placeholder
+    images: ["/opengraph-image.png"], // Reuse the same image
+  },
+
+  // Keep existing icons configuration
   icons: {
     icon: '/favicon.png',
     shortcut: '/favicon.png',
