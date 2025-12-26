@@ -1,0 +1,27 @@
+# HeicToPng.org
+
+> The fastest, most secure, and unlimited HEIC to PNG converter running entirely in your browser.
+
+## Project Overview
+HeicToPng.org is a specialized web-based utility designed to convert HEIC (High Efficiency Image Coding) and HEIF images into PNG format. Unlike traditional converters, it processes files locally on the user's device (Client-Side), ensuring zero data upload risks.
+
+## Core Capabilities
+
+### 1. Privacy & Security (Zero-Knowledge)
+- **Architecture:** Client-side processing using WebAssembly and JavaScript.
+- **Data Safety:** Files are NEVER uploaded to any server. They remain in the user's browser memory during conversion.
+- **Retention:** No data retention policy is needed as no data is collected.
+
+### 2. Performance & Limits
+- **Batch Processing:** Supports converting up to **100 images** simultaneously.
+- **File Size:** Supports large files up to **50MB** per image.
+- **Cost:** 100% Free. No daily limits, no credits, no paywalls.
+- **Output:** Generates high-quality, lossless PNG files with transparency support.
+- **Download:** Automatic ZIP file generation for batch downloads.
+
+## Compatibility
+- **Supported OS:** Windows 10/11, macOS, Android, iOS, Linux.
+- **Supported Browsers:** Chrome, Edge, Safari, Firefox.
+
+## Links
+- **Tool URL:** https://heictopng.org/
